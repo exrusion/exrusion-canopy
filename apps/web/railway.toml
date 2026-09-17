@@ -1,0 +1,8 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @canopy/web build"
+
+[deploy]
+startCommand = "pnpm --filter @canopy/web start"
+healthcheckPath = "/status"
+restartPolicyType = "ON_FAILURE"

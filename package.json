@@ -1,0 +1,12 @@
+{
+  "name": "canopy-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @canopy/api --filter @canopy/web dev",
+    "test": "pnpm --filter @canopy/shared build && pnpm --filter @canopy/contracts test && pnpm --filter @canopy/api test && pnpm --filter @canopy/indexer test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

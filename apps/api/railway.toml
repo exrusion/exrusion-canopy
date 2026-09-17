@@ -1,0 +1,9 @@
+[build]
+buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @canopy/shared build && pnpm --filter @canopy/api build"
+
+[deploy]
+startCommand = "pnpm --filter @canopy/api start"
+healthcheckPath = "/healthz"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+

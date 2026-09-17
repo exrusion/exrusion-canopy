@@ -1,0 +1,9 @@
+"use client";
+
+import { AsyncData } from "./AsyncData";
+import { AddressLink } from "./AddressLink";
+
+type Status = { chain: { id: number; rpc: string; latestBlock: string | null; explorer: string }; database: string; indexers: { worker: string; block_number: string; updated_at: string }[]; pons: { factory: string; verification: string }; contracts: { name: string; state: string; address: string | null }[] };
+export function SystemStatus() {
+  return <AsyncData<Status> path="/v1/status" poll={10000}>{(data) => <div className="status-grid"><section><span className="eyebrow">Infrastructure</span><h2>Runtime health</h2><div className="status-rows"><div><span>Robinhood RPC</span><b className={data.chain.rpc === "live" ? "ok" : "warn"}>{data.chain.rpc}</b></div><div><span>PostgreSQL</span><b className={data.database === "live" ? "ok" : "warn"}>{data.database}</b></div><div><span>Latest block</span><strong>{data.chain.latestBlock ?? "Unavailable"}</strong></div><div><span>Chain ID</span><strong>{data.chain.id}</strong></div></div></section><section><span className="eyebrow">Contracts</span><h2>Integration health</h2><div className="status-rows"><div><span>Pons v2 factory</span><AddressLink address={data.pons.factory} /></div>{data.contracts.map((contract) => <div key={contract.name}><span>{contract.name}</span><b className={contract.state === "live" ? "ok" : "warn"}>{contract.state.replaceAll("_", " ")}</b></div>)}</div></section><section className="span-two"><span className="eyebrow">Workers</span><h2>Canonical checkpoints</h2>{data.indexers.length ? <div className="status-rows">{data.indexers.map((worker) => <div key={worker.worker}><span>{worker.worker}</span><strong>Block {worker.block_number}</strong></div>)}</div> : <p className="empty-inline">No worker checkpoint exists. Indexing has not started.</p>}</section></div>}</AsyncData>;
+}

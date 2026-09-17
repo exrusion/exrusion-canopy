@@ -1,0 +1,31 @@
+{
+  "name": "@canopy/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "pnpm --filter @canopy/shared build",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "db:migrate": "tsx src/migrate.ts",
+    "pretest": "pnpm --filter @canopy/shared build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@canopy/shared": "workspace:*",
+    "@fastify/cors": "^10.1.0",
+    "fastify": "^5.6.0",
+    "pg": "^8.16.3",
+    "viem": "^2.37.6",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,8 @@
+[build]
+buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @canopy/shared build && pnpm --filter @canopy/indexer build"
+
+[deploy]
+startCommand = "pnpm --filter @canopy/indexer start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+

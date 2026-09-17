@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - keccak
+  - sharp
+allowBuilds:
+  esbuild: true
+  keccak: true
