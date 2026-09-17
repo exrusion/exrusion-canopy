@@ -359,14 +359,28 @@ async function processRange(worker: string, start: bigint, safeHead: bigint, sco
 }
 
 async function tick() {
+  const ponsStart = config.PONS_V2_DEPLOYMENT_BLOCK;
+  const canopyStart = config.NESTED_PAD_REGISTRY_DEPLOYMENT_BLOCK;
+  const ponsEnabled = ponsStart != null;
+  const canopyEnabled = Boolean(
+    config.NESTED_PAD_REGISTRY &&
+    canopyStart != null &&
+    config.CHILD_TOKEN_FACTORY
+  );
+
+  // Do not poll the public RPC while every indexer is intentionally disabled.
+  // This keeps preview deployments idle until verified deployment blocks and
+  // contract addresses are provided, instead of generating avoidable 429s.
+  if (!ponsEnabled && !canopyEnabled) return;
+
   const head = await rpc.getBlockNumber();
   if (head <= config.INDEXER_CONFIRMATIONS) return;
   const safeHead = head - config.INDEXER_CONFIRMATIONS;
-  if (config.PONS_V2_DEPLOYMENT_BLOCK != null) {
-    await processRange("pons-v2", config.PONS_V2_DEPLOYMENT_BLOCK, safeHead, "pons", indexPons);
+  if (ponsStart != null) {
+    await processRange("pons-v2", ponsStart, safeHead, "pons", indexPons);
   }
-  if (config.NESTED_PAD_REGISTRY && config.NESTED_PAD_REGISTRY_DEPLOYMENT_BLOCK != null && config.CHILD_TOKEN_FACTORY) {
-    await processRange("canopy", config.NESTED_PAD_REGISTRY_DEPLOYMENT_BLOCK, safeHead, "canopy", indexCanopy);
+  if (canopyEnabled && canopyStart != null) {
+    await processRange("canopy", canopyStart, safeHead, "canopy", indexCanopy);
     await computeLedger();
   }
 }
