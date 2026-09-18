@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/worker.js",
     "rewards:build": "tsx src/rewards.ts",
+    "rewards:publish": "tsx src/publishReward.ts",
     "pretest": "pnpm --filter @canopy/shared build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"

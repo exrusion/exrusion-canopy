@@ -2,6 +2,7 @@ import { Pool, type PoolClient } from "pg";
 import {
   createPublicClient,
   decodeEventLog,
+  erc20Abi,
   getAddress,
   http,
   parseAbiItem,
@@ -201,10 +202,11 @@ async function contractLogs(address: Address, abi: readonly unknown[], fromBlock
   return rpc.getLogs({ address, events: abi as never, fromBlock, toBlock });
 }
 
-async function marketLogs(fromBlock: bigint, toBlock: bigint) {
+async function marketLogs(fromBlock: bigint, toBlock: bigint, markets: Address[]) {
+  if (markets.length === 0) return [];
   const [buy, sell] = await Promise.all([
-    rpc.getLogs({ event: parseAbiItem("event Buy(address indexed buyer,address indexed recipient,uint256 quoteIn,uint256 tokensOut,uint256 fee)"), fromBlock, toBlock }),
-    rpc.getLogs({ event: parseAbiItem("event Sell(address indexed seller,address indexed recipient,uint256 tokensIn,uint256 quoteOut,uint256 fee)"), fromBlock, toBlock })
+    rpc.getLogs({ address: markets, event: parseAbiItem("event Buy(address indexed buyer,address indexed recipient,uint256 quoteIn,uint256 tokensOut,uint256 fee)"), fromBlock, toBlock }),
+    rpc.getLogs({ address: markets, event: parseAbiItem("event Sell(address indexed seller,address indexed recipient,uint256 tokensIn,uint256 quoteOut,uint256 fee)"), fromBlock, toBlock })
   ]);
   return [...buy, ...sell];
 }
@@ -212,16 +214,25 @@ async function marketLogs(fromBlock: bigint, toBlock: bigint) {
 async function indexCanopy(fromBlock: bigint, toBlock: bigint) {
   const registry = getAddress(config.NESTED_PAD_REGISTRY!);
   const factory = getAddress(config.CHILD_TOKEN_FACTORY!);
-  const [registryLogs, factoryLogs, feeLogs, rewardLogs, trades] = await Promise.all([
+  const [registryLogs, factoryLogs, feeLogs, rewardLogs] = await Promise.all([
     contractLogs(registry, registryEvents, fromBlock, toBlock),
     contractLogs(factory, factoryEvents, fromBlock, toBlock),
     config.FEE_ROUTER ? contractLogs(getAddress(config.FEE_ROUTER), feeEvents, fromBlock, toBlock) : [],
-    config.REWARD_DISTRIBUTOR ? contractLogs(getAddress(config.REWARD_DISTRIBUTOR), rewardEvents, fromBlock, toBlock) : [],
-    marketLogs(fromBlock, toBlock)
+    config.REWARD_DISTRIBUTOR ? contractLogs(getAddress(config.REWARD_DISTRIBUTOR), rewardEvents, fromBlock, toBlock) : []
   ]);
+  const knownMarketsResult = await pool.query<{ market: string }>("SELECT market FROM child_tokens");
+  const marketAddresses = new Set<Address>(knownMarketsResult.rows.map((row) => getAddress(row.market)));
+  for (const source of factoryLogs as Log[]) {
+    try {
+      const decoded = decodeEventLog({ abi: factoryEvents, data: source.data, topics: source.topics });
+      if (decoded.eventName === "ChildLaunched") marketAddresses.add(getAddress((decoded.args as { market: string }).market));
+    } catch {
+      // Unknown factory logs are ignored; strict decoding happens in the canonical pass below.
+    }
+  }
+  const trades = await marketLogs(fromBlock, toBlock, [...marketAddresses]);
   const all = [...registryLogs, ...factoryLogs, ...feeLogs, ...rewardLogs, ...trades].map(requiredLog)
     .sort((a, b) => a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1);
-  const knownMarketsResult = await pool.query<{ market: string }>("SELECT market FROM child_tokens");
   const knownMarkets = new Set(knownMarketsResult.rows.map((row) => lower(row.market)));
   const cache = new Map<bigint, Date>();
   const client = await pool.connect();
@@ -262,20 +273,25 @@ async function indexCanopy(fromBlock: bigint, toBlock: bigint) {
         await upsertEvent(client, { eventType: "pad_status_changed", token: args.parentToken, payload: args, log, time });
       } else if (decoded.eventName === "ChildLaunched") {
         knownMarkets.add(lower(args.market));
+        const [tokenName, tokenSymbol] = await Promise.all([
+          rpc.readContract({ address: getAddress(args.childToken), abi: erc20Abi, functionName: "name", blockNumber: log.blockNumber }).catch(() => null),
+          rpc.readContract({ address: getAddress(args.childToken), abi: erc20Abi, functionName: "symbol", blockNumber: log.blockNumber }).catch(() => null)
+        ]);
         await client.query(
           `INSERT INTO child_tokens
-            (token, parent_token, market, creator, metadata_uri, supply, initial_quote_seed,
+            (token, parent_token, market, creator, token_name, token_symbol, metadata_uri, supply, initial_quote_seed,
              config_version, tx_hash, log_index, block_number, block_hash, block_time)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            ON CONFLICT (token) DO UPDATE SET
              parent_token=EXCLUDED.parent_token, market=EXCLUDED.market, creator=EXCLUDED.creator,
+             token_name=EXCLUDED.token_name, token_symbol=EXCLUDED.token_symbol,
              metadata_uri=EXCLUDED.metadata_uri, supply=EXCLUDED.supply,
              initial_quote_seed=EXCLUDED.initial_quote_seed, config_version=EXCLUDED.config_version,
              tx_hash=EXCLUDED.tx_hash, log_index=EXCLUDED.log_index, block_number=EXCLUDED.block_number,
              block_hash=EXCLUDED.block_hash, block_time=EXCLUDED.block_time`,
-          [lower(args.childToken), lower(args.parentToken), lower(args.market), lower(args.creator), args.metadataUri,
-            args.supply.toString(), args.initialQuoteSeed.toString(), args.configVersion.toString(), log.transactionHash,
-            log.logIndex, log.blockNumber.toString(), log.blockHash, time]
+          [lower(args.childToken), lower(args.parentToken), lower(args.market), lower(args.creator), tokenName, tokenSymbol,
+            args.metadataUri, args.supply.toString(), args.initialQuoteSeed.toString(), args.configVersion.toString(),
+            log.transactionHash, log.logIndex, log.blockNumber.toString(), log.blockHash, time]
         );
         await upsertEvent(client, { eventType: "child_launched", token: args.childToken, parentToken: args.parentToken, actor: args.creator, payload: args, log, time });
       } else if (decoded.eventName === "Buy") {

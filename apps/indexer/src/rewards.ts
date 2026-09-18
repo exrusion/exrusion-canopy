@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createPublicClient, getAddress, http, parseAbiItem, type Address } from "viem";
+import { createPublicClient, getAddress, http, keccak256, parseAbiItem, toHex, type Address } from "viem";
 import { config } from "./config.js";
 import { buildRewardTree } from "./rewardTree.js";
 
@@ -55,6 +55,13 @@ async function main() {
   }
   for (const account of [...balances.keys()]) if (excluded.has(account.toLowerCase())) balances.delete(account);
   const tree = buildRewardTree(epochId, balances, rewardAmount);
+  const allocationPayload = tree.allocations.map((row) => ({
+    account: row.account,
+    balance: row.balance.toString(),
+    amount: row.amount.toString(),
+    proof: row.proof
+  }));
+  const allocationHash = keccak256(toHex(JSON.stringify(allocationPayload)));
   const file = {
     schema: "canopy.reward-allocation.v1",
     chainId: config.CHAIN_ID,
@@ -66,6 +73,7 @@ async function main() {
     holderScanStartBlock: scanStart.toString(),
     exclusions: [...excluded].sort(),
     root: tree.root,
+    allocationHash,
     totalEligibleBalance: tree.totalBalance.toString(),
     holderCount: tree.allocations.length,
     allocations: tree.allocations.map((row) => ({

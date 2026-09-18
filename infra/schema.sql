@@ -97,6 +97,17 @@ CREATE TABLE IF NOT EXISTS reward_epochs (
   block_time TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS reward_allocations (
+  epoch_id NUMERIC(78,0) NOT NULL,
+  account TEXT NOT NULL,
+  balance NUMERIC(78,0) NOT NULL,
+  amount NUMERIC(78,0) NOT NULL,
+  leaf TEXT NOT NULL,
+  proof JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (epoch_id, account)
+);
+
 CREATE TABLE IF NOT EXISTS ledger_epochs (
   minute BIGINT PRIMARY KEY,
   merkle_root TEXT NOT NULL,
@@ -111,4 +122,4 @@ CREATE INDEX IF NOT EXISTS idx_protocol_events_block ON protocol_events (block_n
 CREATE INDEX IF NOT EXISTS idx_protocol_events_token ON protocol_events (token, block_number DESC);
 CREATE INDEX IF NOT EXISTS idx_child_tokens_parent ON child_tokens (parent_token);
 CREATE INDEX IF NOT EXISTS idx_pads_depth ON pads (depth, block_number DESC);
-
+CREATE INDEX IF NOT EXISTS idx_reward_allocations_account ON reward_allocations (account, epoch_id DESC);

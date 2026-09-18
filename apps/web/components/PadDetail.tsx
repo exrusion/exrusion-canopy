@@ -14,10 +14,32 @@ type Pad = { parent_token: string; owner_address: string; config_version: string
 type Child = { token: string; token_name: string | null; token_symbol: string | null; market: string; creator: string };
 type Payload = { state: string; pad: Pad; children: Child[] };
 const factory = process.env.NEXT_PUBLIC_CHILD_TOKEN_FACTORY as Address | undefined;
+const registry = process.env.NEXT_PUBLIC_NESTED_PAD_REGISTRY as Address | undefined;
 const launchAbi = [{ type: "function", name: "launchChild", stateMutability: "nonpayable", inputs: [
   { name: "parentToken", type: "address" }, { name: "name", type: "string" }, { name: "symbol", type: "string" },
   { name: "supply", type: "uint256" }, { name: "initialQuoteSeed", type: "uint256" }, { name: "metadataUri", type: "string" }
 ], outputs: [{ name: "childToken", type: "address" }, { name: "market", type: "address" }] }] as const;
+const padStatusAbi = [{ type: "function", name: "setPadActive", stateMutability: "nonpayable", inputs: [{ name: "parentToken", type: "address" }, { name: "active", type: "bool" }], outputs: [] }] as const;
+
+function PadStatusButton({ parent, owner, active }: { parent: Address; owner: string; active: boolean }) {
+  const { account, connect } = useWallet();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const isOwner = account?.toLowerCase() === owner.toLowerCase();
+  const updateStatus = async () => {
+    if (!account) { await connect(); return; }
+    if (!registry || !isOwner) return;
+    setBusy(true); setMessage(null);
+    try {
+      const { wallet, publicClient } = await walletClients();
+      const hash = await wallet.writeContract({ account, address: registry, abi: padStatusAbi, functionName: "setPadActive", args: [parent, !active] });
+      await publicClient.waitForTransactionReceipt({ hash });
+      setMessage(active ? "Pad pause confirmed. The indexer will update shortly." : "Pad activation confirmed. The indexer will update shortly.");
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Pad status update failed"); }
+    finally { setBusy(false); }
+  };
+  return <div className="pad-actions"><span className={`state-label ${active ? "live" : "not_available"}`}>{active ? "active" : "paused"}</span>{isOwner && registry && <button className="button secondary small" disabled={busy} onClick={() => void updateStatus()}>{busy ? "Confirming…" : active ? "Pause pad" : "Activate pad"}</button>}{message && <small>{message}</small>}</div>;
+}
 
 function ChildLaunch({ parent, active }: { parent: Address; active: boolean }) {
   const { account, connect } = useWallet();
@@ -48,5 +70,5 @@ function ChildLaunch({ parent, active }: { parent: Address; active: boolean }) {
 export function PadDetail() {
   const value = useParams<{ address: string }>().address;
   if (!isAddress(value)) return <p className="form-message">Invalid pad address.</p>;
-  return <AsyncData<Payload> path={`/v1/pad/${value}`} emptyTitle="Pad is not indexed">{({ pad, children }) => <><div className="pad-heading"><div><span className="eyebrow">{pad.pons_root ? "Verified pons root" : `Canopy depth ${pad.depth}`}</span><h1>{shortAddress(pad.parent_token)} pad</h1><p>Child markets are quoted in this parent token.</p></div><span className={`state-label ${pad.active ? "live" : "not_available"}`}>{pad.active ? "active" : "paused"}</span></div><div className="detail-layout"><section className="detail-main"><div className="facts-grid"><div><small>Parent token</small><AddressLink address={pad.parent_token} /></div><div><small>Pad owner</small><AddressLink address={pad.owner_address} /></div><div><small>Fee config</small><strong>Version {pad.config_version}</strong></div><div><small>Children</small><strong>{children.length}</strong></div></div><div className="subheading"><span className="eyebrow">Direct descendants</span><h2>Child markets</h2></div>{children.length ? <div className="child-list">{children.map((child) => <Link key={child.token} href={`/token/${child.token}`}><span className="token-avatar">{child.token_symbol?.slice(0, 2) ?? "•"}</span><span><strong>{child.token_name ?? shortAddress(child.token)}</strong><small>{child.token_symbol ?? "Onchain token"}</small></span><span>Trade →</span></Link>)}</div> : <p className="empty-inline">No confirmed child launches yet.</p>}</section><ChildLaunch parent={pad.parent_token as Address} active={pad.active} /></div></>}</AsyncData>;
+  return <AsyncData<Payload> path={`/v1/pad/${value}`} emptyTitle="Pad is not indexed">{({ pad, children }) => <><div className="pad-heading"><div><span className="eyebrow">{pad.pons_root ? "Verified pons root" : `Canopy depth ${pad.depth}`}</span><h1>{shortAddress(pad.parent_token)} pad</h1><p>Child markets are quoted in this parent token.</p></div><PadStatusButton parent={pad.parent_token as Address} owner={pad.owner_address} active={pad.active} /></div><div className="detail-layout"><section className="detail-main"><div className="facts-grid"><div><small>Parent token</small><AddressLink address={pad.parent_token} /></div><div><small>Pad owner</small><AddressLink address={pad.owner_address} /></div><div><small>Fee config</small><strong>Version {pad.config_version}</strong></div><div><small>Children</small><strong>{children.length}</strong></div></div><div className="subheading"><span className="eyebrow">Direct descendants</span><h2>Child markets</h2></div>{children.length ? <div className="child-list">{children.map((child) => <Link key={child.token} href={`/token/${child.token}`}><span className="token-avatar">{child.token_symbol?.slice(0, 2) ?? "•"}</span><span><strong>{child.token_name ?? shortAddress(child.token)}</strong><small>{child.token_symbol ?? "Onchain token"}</small></span><span>Trade →</span></Link>)}</div> : <p className="empty-inline">No confirmed child launches yet.</p>}</section><ChildLaunch parent={pad.parent_token as Address} active={pad.active} /></div></>}</AsyncData>;
 }

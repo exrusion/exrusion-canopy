@@ -5,6 +5,7 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network robinhoodMainnet",
     "deploy:testnet": "hardhat run scripts/deploy-testnet.ts --network robinhoodTestnet",
     "typecheck": "tsc --noEmit"
   },

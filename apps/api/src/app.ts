@@ -13,6 +13,16 @@ const chain = {
 } as const;
 
 const rpc = createPublicClient({ chain, transport: http(config.RPC_HTTP_URL, { timeout: 8_000 }) });
+const rewardClaimStatusAbi = [{
+  type: "function", name: "claimed", stateMutability: "view",
+  inputs: [{ name: "epochId", type: "uint256" }, { name: "account", type: "address" }],
+  outputs: [{ type: "bool" }]
+}] as const;
+const feeClaimableAbi = [{
+  type: "function", name: "claimable", stateMutability: "view",
+  inputs: [{ name: "recipient", type: "address" }, { name: "token", type: "address" }],
+  outputs: [{ type: "uint256" }]
+}] as const;
 
 function jsonSafe<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_, next) => typeof next === "bigint" ? next.toString() : next));
@@ -111,17 +121,71 @@ export async function buildApp() {
   app.get("/v1/rewards", async (request) => {
     const { account } = request.query as { account?: string };
     if (account && !isAddress(account)) return { state: "not_available", error: "Invalid address" };
-    const result = await db.query(
-      `SELECT epoch_id, beneficiary_token, reward_token, merkle_root, total_reward,
-              snapshot_block, holder_count, allocation_hash, tx_hash, block_number, block_time
-       FROM reward_epochs ORDER BY epoch_id DESC LIMIT 100`
-    );
+    const result = account
+      ? await db.query(
+          `SELECT e.epoch_id, e.beneficiary_token, e.reward_token, e.merkle_root, e.total_reward,
+                  e.snapshot_block, e.holder_count, e.allocation_hash, e.tx_hash, e.block_number,
+                  e.block_time, a.amount AS claim_amount, a.proof
+           FROM reward_epochs e
+           LEFT JOIN reward_allocations a
+             ON a.epoch_id = e.epoch_id AND a.account = $1
+           ORDER BY e.epoch_id DESC LIMIT 100`,
+          [account.toLowerCase()]
+        )
+      : await db.query(
+          `SELECT epoch_id, beneficiary_token, reward_token, merkle_root, total_reward,
+                  snapshot_block, holder_count, allocation_hash, tx_hash, block_number, block_time,
+                  NULL::numeric AS claim_amount, NULL::jsonb AS proof
+           FROM reward_epochs ORDER BY epoch_id DESC LIMIT 100`
+        );
+    const items = await Promise.all(result.rows.map(async (row) => {
+      if (!account || !row.claim_amount || !config.REWARD_DISTRIBUTOR) return { ...row, claimed: false };
+      try {
+        const claimed = await rpc.readContract({
+          address: config.REWARD_DISTRIBUTOR as Address,
+          abi: rewardClaimStatusAbi,
+          functionName: "claimed",
+          args: [BigInt(row.epoch_id), account as Address]
+        });
+        return { ...row, claimed };
+      } catch {
+        return { ...row, claimed: null };
+      }
+    }));
     return {
       state: result.rows.length ? "live" : "not_indexed",
       source: "published_merkle_epochs",
       account: account ?? null,
-      items: result.rows
+      items: jsonSafe(items)
     };
+  });
+
+  app.get("/v1/fee-claims/:account", async (request, reply) => {
+    const { account } = request.params as { account: string };
+    if (!isAddress(account)) return reply.code(400).send({ state: "not_available", error: "Invalid address" });
+    if (!config.FEE_ROUTER) return { state: "integration_not_verified", source: "onchain_fee_router", items: [] };
+    const candidates = await db.query<{ token: string }>(
+      `SELECT DISTINCT parent_token AS token FROM child_tokens WHERE creator = $1
+       UNION
+       SELECT DISTINCT c.parent_token AS token
+       FROM child_tokens c JOIN pads p ON p.parent_token = c.parent_token
+       WHERE p.owner_address = $1`,
+      [account.toLowerCase()]
+    );
+    const items = await Promise.all(candidates.rows.map(async ({ token }) => {
+      try {
+        const amount = await rpc.readContract({
+          address: config.FEE_ROUTER as Address,
+          abi: feeClaimableAbi,
+          functionName: "claimable",
+          args: [account as Address, token as Address]
+        });
+        return { token, amount: amount.toString(), state: "live" };
+      } catch {
+        return { token, amount: null, state: "not_available" };
+      }
+    }));
+    return { state: "live", source: "onchain_fee_router", router: config.FEE_ROUTER, items };
   });
 
   app.get("/v1/token/:address", async (request, reply) => {
@@ -172,4 +236,3 @@ export async function buildApp() {
 
   return app;
 }
-

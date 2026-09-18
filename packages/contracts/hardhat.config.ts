@@ -12,6 +12,11 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: { chainId: 31337 },
+    robinhoodMainnet: {
+      chainId: 4663,
+      url: process.env.RPC_HTTP_URL ?? "https://rpc.mainnet.chain.robinhood.com",
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : []
+    },
     robinhoodTestnet: {
       chainId: 46630,
       url: process.env.RPC_HTTP_URL ?? "https://rpc.testnet.chain.robinhood.com",
@@ -21,4 +26,3 @@ const config: HardhatUserConfig = {
 };
 
 export default config;
-
